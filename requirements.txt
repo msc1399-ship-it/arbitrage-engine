@@ -1,0 +1,8 @@
+requests>=2.32
+requests-oauthlib>=2.0
+python-dotenv>=1.0
+pydantic>=2.9
+supabase>=2.10
+pandas>=2.2
+streamlit>=1.39
+pytest>=8.3

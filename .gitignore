@@ -1,0 +1,10 @@
+.env
+.env.*
+!/.env.example
+__pycache__/
+*.pyc
+lego_universe_checkpoint.csv
+.test-*/
+.pytest_cache/
+streamlit-v04*.log
+/data/*.sqlite3*
