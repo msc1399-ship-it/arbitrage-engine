@@ -45,6 +45,10 @@ class EbayClient:
         self.max_retries = max_retries
         self._token = None
         self._token_expires_at = 0.0
+        self.rate_limit_retries = 0
+
+    def _on_rate_limit(self, **_):
+        self.rate_limit_retries += 1
 
     @property
     def configured(self):
@@ -58,7 +62,7 @@ class EbayClient:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "client_credentials", "scope": OAUTH_SCOPE},
             auth=(self.client_id, self.client_secret), max_retries=self.max_retries,
-            sleep=self.sleep,
+            sleep=self.sleep, on_rate_limit=self._on_rate_limit,
         )
         try:
             payload = response.json()
@@ -93,6 +97,7 @@ class EbayClient:
             response = request_with_backoff(
                 "GET", url, session=self.session, headers=headers, params=params,
                 max_retries=self.max_retries, sleep=self.sleep,
+                on_rate_limit=self._on_rate_limit,
             )
             payload = response.json()
             pages.append(payload)

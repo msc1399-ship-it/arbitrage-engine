@@ -77,6 +77,36 @@ class MarketStore:
                     error_message TEXT,
                     PRIMARY KEY (run_id, set_num)
                 );
+                CREATE TABLE IF NOT EXISTS ebay_market_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    set_num TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    marketplace TEXT NOT NULL DEFAULT 'EBAY',
+                    condition TEXT NOT NULL DEFAULT 'MIXED',
+                    full_set_count INTEGER,
+                    retrieval_yield REAL,
+                    uncertain_rate REAL,
+                    price_stability TEXT,
+                    quality_status TEXT NOT NULL,
+                    usable_for_radar INTEGER NOT NULL,
+                    new_count INTEGER,
+                    new_min REAL,
+                    new_p25 REAL,
+                    new_median REAL,
+                    new_p75 REAL,
+                    new_max REAL,
+                    used_count INTEGER,
+                    used_min REAL,
+                    used_p25 REAL,
+                    used_median REAL,
+                    used_p75 REAL,
+                    used_max REAL,
+                    api_calls INTEGER NOT NULL,
+                    diagnostic TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_ebay_snapshot_set
+                    ON ebay_market_snapshots(set_num, id DESC);
             """)
 
     def start_run(self, run_id, set_nums, timestamp=None):
@@ -137,6 +167,55 @@ class MarketStore:
                 (timestamp, run_id),
             )
 
+    def save_ebay_snapshot(self, run_id, snapshot, *, usable_for_radar, timestamp=None):
+        timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+        price_fields = (
+            "new_count", "new_min", "new_p25", "new_median", "new_p75", "new_max",
+            "used_count", "used_min", "used_p25", "used_median", "used_p75", "used_max",
+        )
+        prices = {
+            field: snapshot.get(field) if usable_for_radar else None
+            for field in price_fields
+        }
+        diagnostic = {
+            "full_set_count": snapshot.get("full_set_count"),
+            "retrieval_yield": snapshot.get("retrieval_yield"),
+            "uncertain_rate": snapshot.get("uncertain_rate"),
+            "price_stability": snapshot.get("price_stability"),
+        }
+        with self._connection() as connection:
+            connection.execute(
+                """INSERT INTO ebay_market_snapshots(
+                       run_id,set_num,timestamp,marketplace,condition,full_set_count,
+                       retrieval_yield,uncertain_rate,price_stability,quality_status,
+                       usable_for_radar,new_count,new_min,new_p25,new_median,new_p75,new_max,
+                       used_count,used_min,used_p25,used_median,used_p75,used_max,
+                       api_calls,diagnostic
+                   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (run_id, snapshot["set_num"], timestamp, "EBAY", "MIXED",
+                 snapshot.get("full_set_count"), snapshot.get("retrieval_yield"),
+                 snapshot.get("uncertain_rate"), snapshot.get("price_stability"),
+                 snapshot["status"], int(usable_for_radar),
+                 *(prices[field] for field in price_fields),
+                 snapshot.get("api_calls", 0), _json(diagnostic)),
+            )
+            connection.execute(
+                """UPDATE market_refresh_run_items
+                   SET market_status=?, processed_at=?, error_message=NULL
+                   WHERE run_id=? AND set_num=?""",
+                (snapshot["status"], timestamp, run_id, snapshot["set_num"]),
+            )
+
+    def mark_run_error(self, run_id, set_num, error_type, timestamp=None):
+        timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+        with self._connection() as connection:
+            connection.execute(
+                """UPDATE market_refresh_run_items
+                   SET market_status='ERROR', processed_at=?, error_message=?
+                   WHERE run_id=? AND set_num=?""",
+                (timestamp, error_type, run_id, set_num),
+            )
+
     def finish_run(self, run_id, timestamp=None):
         timestamp = timestamp or datetime.now(timezone.utc).isoformat()
         with self._connection() as connection:
@@ -161,6 +240,24 @@ class MarketStore:
                 "SELECT * FROM market_refresh_history WHERE set_num=? ORDER BY id",
                 (set_num,),
             ).fetchall()
+        return [dict(row) for row in rows]
+
+    def ebay_history_for_set(self, set_num):
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM ebay_market_snapshots WHERE set_num=? ORDER BY id",
+                (set_num,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def latest_ebay_snapshots(self):
+        with self._connection() as connection:
+            rows = connection.execute("""
+                SELECT s.* FROM ebay_market_snapshots s
+                JOIN (SELECT set_num, MAX(id) id FROM ebay_market_snapshots GROUP BY set_num) latest
+                  ON s.id=latest.id
+                ORDER BY s.set_num
+            """).fetchall()
         return [dict(row) for row in rows]
 
     def latest_radar_rows(self):
@@ -198,7 +295,31 @@ class MarketStore:
                 "last_market_refresh": record["timestamp"],
                 "error_message": record["error_message"],
             })
-        return output
+        by_set = {row["set_num"]: row for row in output}
+        badges = {
+            "GOOD_EBAY_DATA": "GOOD", "PARTIAL_EBAY_DATA": "PARTIAL",
+            "REVIEW_REQUIRED": "REVIEW", "INSUFFICIENT_EBAY_DATA": "INSUFFICIENT",
+        }
+        for snapshot in self.latest_ebay_snapshots():
+            row = by_set.setdefault(snapshot["set_num"], {
+                "set_num": snapshot["set_num"], "decision": "PENDING MARKET DATA",
+            })
+            usable = bool(snapshot["usable_for_radar"])
+            row.update({
+                "ebay_status": badges.get(snapshot["quality_status"], snapshot["quality_status"]),
+                "ebay_full_set_count": snapshot["full_set_count"],
+                "ebay_new_p25": snapshot["new_p25"] if usable else None,
+                "ebay_new_median": snapshot["new_median"] if usable else None,
+                "ebay_used_p25": snapshot["used_p25"] if usable else None,
+                "ebay_used_median": snapshot["used_median"] if usable else None,
+                "ebay_asking_reference_new": snapshot["new_p25"] if usable else None,
+                "ebay_asking_reference_used": snapshot["used_p25"] if usable else None,
+                "ebay_retrieval_yield": snapshot["retrieval_yield"],
+                "ebay_uncertain_rate": snapshot["uncertain_rate"],
+                "ebay_price_stability": snapshot["price_stability"],
+                "ebay_last_refresh": snapshot["timestamp"],
+            })
+        return list(by_set.values())
 
     def status_summary(self):
         records = self.latest_records()
@@ -210,4 +331,21 @@ class MarketStore:
             "updated": counts["OK"] + counts["PARTIAL"],
             "pending": counts["PENDING"],
             "errors": counts["ERROR"],
+        }
+
+    def ebay_status_summary(self):
+        records = self.latest_ebay_snapshots()
+        counts = {
+            "GOOD_EBAY_DATA": 0, "PARTIAL_EBAY_DATA": 0,
+            "REVIEW_REQUIRED": 0, "INSUFFICIENT_EBAY_DATA": 0,
+        }
+        for record in records:
+            status = record["quality_status"]
+            counts[status] = counts.get(status, 0) + 1
+        return {
+            "last_refresh": max((record["timestamp"] for record in records), default=None),
+            "good": counts["GOOD_EBAY_DATA"],
+            "partial": counts["PARTIAL_EBAY_DATA"],
+            "review": counts["REVIEW_REQUIRED"],
+            "insufficient": counts["INSUFFICIENT_EBAY_DATA"],
         }

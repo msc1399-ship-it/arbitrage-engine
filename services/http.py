@@ -18,7 +18,7 @@ class ConnectorRateLimitError(ConnectorError):
 
 def request_with_backoff(method, url, *, session=None, headers=None, params=None, data=None,
                          auth=None, timeout=30, max_retries=6, base_delay=2.0,
-                         sleep=time.sleep):
+                         sleep=time.sleep, on_rate_limit=None):
     requester = session or requests
     last_error = None
     last_status_code = None
@@ -39,6 +39,8 @@ def request_with_backoff(method, url, *, session=None, headers=None, params=None
                 wait = min(wait, 120)
                 if attempt == max_retries - 1:
                     raise ConnectorRateLimitError("Connector rate limit exceeded")
+                if on_rate_limit is not None:
+                    on_rate_limit(attempt=attempt + 1, wait_seconds=wait)
                 sleep(wait)
                 continue
             if 400 <= r.status_code < 500:

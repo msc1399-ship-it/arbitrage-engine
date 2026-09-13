@@ -136,6 +136,7 @@ def test_ebay_retries_rate_limit_and_paginates_without_sold_data():
     assert result.active_listing_count == 2
     assert result.sales_6m is None
     assert len(session.calls) == 4
+    assert client.rate_limit_retries == 1
     assert session.calls[2][2]["headers"]["X-EBAY-C-MARKETPLACE-ID"] == "EBAY_ES"
 
 

@@ -41,6 +41,18 @@ RADAR_COLUMNS = [
     "decision",
     "market_status",
     "last_market_refresh",
+    "ebay_status",
+    "ebay_full_set_count",
+    "ebay_new_p25",
+    "ebay_new_median",
+    "ebay_used_p25",
+    "ebay_used_median",
+    "ebay_asking_reference_new",
+    "ebay_asking_reference_used",
+    "ebay_retrieval_yield",
+    "ebay_uncertain_rate",
+    "ebay_price_stability",
+    "ebay_last_refresh",
 ]
 
 MARKET_DETAIL_COLUMNS = ["confidence_reasons", "confidence_factors", "error_message"]
@@ -90,6 +102,15 @@ def build_radar_frame(catalog: pd.DataFrame) -> pd.DataFrame:
         "expected_days_to_sell",
         "active_listings",
         "confidence",
+        "ebay_full_set_count",
+        "ebay_new_p25",
+        "ebay_new_median",
+        "ebay_used_p25",
+        "ebay_used_median",
+        "ebay_asking_reference_new",
+        "ebay_asking_reference_used",
+        "ebay_retrieval_yield",
+        "ebay_uncertain_rate",
     ]
     for col in market_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -103,6 +124,9 @@ def build_radar_frame(catalog: pd.DataFrame) -> pd.DataFrame:
     df["last_market_refresh"] = pd.NA
     df["confidence_score"] = pd.NA
     df["confidence_label"] = pd.NA
+    df["ebay_status"] = "PENDING"
+    df["ebay_price_stability"] = pd.NA
+    df["ebay_last_refresh"] = pd.NA
     for col in MARKET_DETAIL_COLUMNS:
         df[col] = pd.NA
 

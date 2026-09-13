@@ -10,8 +10,8 @@ import streamlit as st
 from dashboard.data_loader import apply_market_history, load_catalog, build_radar_frame, load_paper_trades
 from dashboard.components import radar_view, analyzer_view, lots_view, paper_view, system_view
 
-st.set_page_config(page_title="Arbitrage Engine LEGO V0.6", layout="wide")
-st.title("ARBITRAGE ENGINE — LEGO V0.6")
+st.set_page_config(page_title="Arbitrage Engine LEGO V0.7", layout="wide")
+st.title("ARBITRAGE ENGINE — LEGO V0.7")
 st.caption("PAPER TRADING")
 try:
     catalog = load_catalog()

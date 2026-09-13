@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 
 from services.ebay_listing_classifier import normalized_condition
+from services.ebay_quality_gate import evaluate_ebay_quality
 from services.ebay_query_engine import (
     EbayQueryEngine,
     deterministic_full_set_sample,
@@ -126,6 +127,32 @@ def select_benchmark_sets(csv_path, *, count=50, seed=DEFAULT_SEED):
     return selected[:count]
 
 
+def select_refresh_sets(csv_path, *, count=250, seed=DEFAULT_SEED,
+                        benchmark_report=None):
+    with Path(csv_path).open(encoding="utf-8-sig", newline="") as source:
+        rows = list(csv.DictReader(source))
+    blocked = set()
+    report = Path(benchmark_report) if benchmark_report else None
+    if report and report.exists():
+        with report.open(encoding="utf-8-sig", newline="") as source:
+            blocked = {
+                row["set_num"] for row in csv.DictReader(source)
+                if row.get("status") in {"REVIEW_REQUIRED", "INSUFFICIENT_EBAY_DATA"}
+            }
+    eligible = [
+        row for row in rows
+        if row["set_num"] not in blocked
+        and re.fullmatch(r"\d{4,5}-1", row["set_num"])
+        and int(row["year"]) >= 2016
+        and int(row["num_parts"]) >= 400
+        and 4 <= len(row["name"].strip()) <= 70
+        and "advent calendar" not in row["name"].casefold()
+    ]
+    if len(eligible) < count:
+        raise ValueError(f"Only {len(eligible)} reasonable eBay refresh candidates")
+    return _pick_stratified(eligible, count, seed)
+
+
 def sample_quality(full_set_count):
     if full_set_count >= 40:
         return "HIGH"
@@ -154,15 +181,11 @@ def price_stability(first_stats, ensemble_stats):
 
 
 def benchmark_status(full_count, uncertain_rate, stability):
-    if uncertain_rate is not None and uncertain_rate > 0.10:
-        return "REVIEW_REQUIRED"
-    if stability == "UNSTABLE":
-        return "REVIEW_REQUIRED"
-    if full_count < 5:
-        return "INSUFFICIENT_EBAY_DATA"
-    if full_count >= 15 and stability in {"STABLE", "MODERATE"}:
-        return "GOOD_EBAY_DATA"
-    return "PARTIAL_EBAY_DATA"
+    return evaluate_ebay_quality(
+        full_set_count=full_count,
+        uncertain_rate=uncertain_rate,
+        price_stability=stability,
+    ).quality_status
 
 
 def _condition_count(listings, condition):

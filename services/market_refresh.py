@@ -50,11 +50,11 @@ class MarketRefreshPipeline:
         self.logger = logger
 
     @classmethod
-    def from_environment(cls, **kwargs):
+    def from_environment(cls, *, include_ebay=False, **kwargs):
         statuses = connector_statuses()
         rebrickable = RebrickableClient() if statuses["Rebrickable"] == "ACTIVE" else None
         bricklink = BrickLinkClient() if statuses["BrickLink"] == "ACTIVE" else None
-        ebay = EbayClient() if statuses["eBay"] == "ACTIVE" else None
+        ebay = EbayClient() if include_ebay and statuses["eBay"] == "ACTIVE" else None
         pause = float(os.getenv("MARKET_REFRESH_PAUSE_SECONDS", "0.5"))
         checkpoint = int(os.getenv("MARKET_REFRESH_CHECKPOINT_EVERY", "10"))
         return cls(rebrickable_client=rebrickable, bricklink_client=bricklink,

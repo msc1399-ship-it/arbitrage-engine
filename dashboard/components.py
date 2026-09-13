@@ -10,6 +10,7 @@ from opportunity_engine.max_buy_price import max_buy_price_for_target
 from opportunity_engine.lot_analyzer import LotItem, analyze_lot
 from services.system_status import connector_statuses
 from services.market_refresh import MarketRefreshPipeline
+from services.ebay_refresh import EbayRefreshPipeline
 from services.market_store import MarketStore
 
 
@@ -30,7 +31,8 @@ def radar_view(radar, paper):
         cols = st.columns(3)
         for column, label, container in [("year", "Anos", cols[0]), ("theme_id", "Temas", cols[1]),
                                           ("decision", "Decision", cols[2]),
-                                          ("market_status", "Estado de mercado", cols[0])]:
+                                          ("market_status", "Estado de mercado", cols[0]),
+                                          ("ebay_status", "EBAY DATA", cols[1])]:
             selected = container.multiselect(label, sorted(radar[column].dropna().unique().tolist()))
             if selected:
                 filtered = filtered[filtered[column].isin(selected)]
@@ -66,6 +68,13 @@ def radar_view(radar, paper):
                 show_values(row, fields)
             st.write("CONFIDENCE ENGINE")
             show_values(row, ["confidence_score", "confidence_label", "market_status", "last_market_refresh"])
+            st.write("EBAY ASKING PRICE — NO SOLD PRICE")
+            show_values(row, [
+                "ebay_status", "ebay_full_set_count", "ebay_asking_reference_new",
+                "ebay_new_median", "ebay_asking_reference_used", "ebay_used_median",
+                "ebay_retrieval_yield", "ebay_uncertain_rate",
+                "ebay_price_stability", "ebay_last_refresh",
+            ])
             factors = row.get("confidence_factors")
             if isinstance(factors, dict):
                 st.dataframe(pd.DataFrame(factors.items(), columns=["Factor", "Score"]), hide_index=True)
@@ -163,7 +172,14 @@ def system_view(catalog, radar):
     columns[1].metric("Sets actualizados", summary["updated"])
     columns[2].metric("Sets pendientes", max(len(catalog) - summary["updated"] - summary["errors"], 0))
     columns[3].metric("Sets con error", summary["errors"])
-    market_ready = statuses["BrickLink"] == "ACTIVE" or statuses["eBay"] == "ACTIVE"
+    ebay_summary = store.ebay_status_summary()
+    ebay_columns = st.columns(5)
+    ebay_columns[0].metric("Ultimo refresh eBay", ebay_summary["last_refresh"] or "PENDING")
+    ebay_columns[1].metric("eBay GOOD", ebay_summary["good"])
+    ebay_columns[2].metric("eBay PARTIAL", ebay_summary["partial"])
+    ebay_columns[3].metric("eBay REVIEW", ebay_summary["review"])
+    ebay_columns[4].metric("eBay INSUFFICIENT", ebay_summary["insufficient"])
+    market_ready = statuses["BrickLink"] == "ACTIVE"
     scope = st.selectbox("Alcance", ["Set seleccionado", "Top N", "Todos"], key="refresh_scope")
     top_n = st.number_input("N", min_value=1, max_value=max(len(radar), 1), value=min(10, max(len(radar), 1)),
                             disabled=scope != "Top N")
@@ -181,7 +197,42 @@ def system_view(catalog, radar):
         errors = sum(item.market_status == "ERROR" for item in batch.results)
         st.success(f"Refresh terminado: {len(batch.results)} sets, {errors} errores")
         st.rerun()
+    st.write("ACTUALIZAR EBAY")
+    ebay_scope = st.selectbox(
+        "Alcance eBay", ["Set seleccionado", "Top N", "Batch personalizado"],
+        key="ebay_refresh_scope",
+    )
+    ebay_top_n = st.number_input(
+        "N eBay", min_value=1, max_value=max(len(radar), 1),
+        value=min(10, max(len(radar), 1)), disabled=ebay_scope != "Top N",
+    )
+    custom_sets = st.text_area(
+        "Sets eBay", disabled=ebay_scope != "Batch personalizado",
+        placeholder="10295-1, 75308-1",
+    )
+    custom_values = [
+        value.strip() for value in custom_sets.replace("\n", ",").split(",")
+        if value.strip()
+    ]
+    ebay_ready = statuses["eBay"] == "ACTIVE"
+    ebay_disabled = (
+        not ebay_ready
+        or (ebay_scope == "Set seleccionado" and not selected)
+        or (ebay_scope == "Batch personalizado" and not custom_values)
+    )
+    if st.button("Actualizar eBay", disabled=ebay_disabled):
+        if ebay_scope == "Set seleccionado":
+            set_nums = [selected]
+        elif ebay_scope == "Top N":
+            set_nums = radar.head(int(ebay_top_n)).set_num.astype(str).tolist()
+        else:
+            set_nums = custom_values
+        with st.spinner("Actualizando oferta activa eBay..."):
+            batch = EbayRefreshPipeline.from_environment(store=store).refresh_sets(set_nums)
+        errors = sum(item.error is not None for item in batch.results)
+        st.success(f"eBay terminado: {len(batch.results)} sets, {errors} errores")
+        st.rerun()
     st.metric("Sets cargados", len(catalog))
     st.write("Ultima actualizacion catalogo:", datetime.fromtimestamp(CATALOG_PATH.stat().st_mtime).isoformat(timespec="seconds") if CATALOG_PATH.exists() else "PENDING")
-    st.write("Version motor: V0.6")
+    st.write("Version motor: V0.7")
     st.write("Fase: PAPER TRADING")

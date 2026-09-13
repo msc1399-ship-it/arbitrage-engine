@@ -5,6 +5,7 @@ from services.ebay_scale_benchmark import (
     price_stability,
     sample_quality,
     select_benchmark_sets,
+    select_refresh_sets,
 )
 
 
@@ -63,3 +64,33 @@ def test_benchmark_status_rules():
     assert benchmark_status(4, 0.05, "STABLE") == "INSUFFICIENT_EBAY_DATA"
     assert benchmark_status(30, 0.11, "STABLE") == "REVIEW_REQUIRED"
     assert benchmark_status(30, 0.05, "UNSTABLE") == "REVIEW_REQUIRED"
+
+
+def test_refresh_selection_excludes_known_problematic_sets(tmp_path):
+    universe = tmp_path / "universe.csv"
+    report = tmp_path / "report.csv"
+    with universe.open("w", newline="", encoding="utf-8") as output:
+        writer = csv.DictWriter(
+            output, fieldnames=("set_num", "name", "year", "theme_id", "num_parts")
+        )
+        writer.writeheader()
+        for index in range(20):
+            writer.writerow({
+                "set_num": f"{10000 + index}-1", "name": f"Useful Set {index}",
+                "year": 2020, "theme_id": 1, "num_parts": 500,
+            })
+        writer.writerow({
+            "set_num": "SPECIAL-1", "name": "Invalid reference", "year": 2020,
+            "theme_id": 1, "num_parts": 500,
+        })
+    with report.open("w", newline="", encoding="utf-8") as output:
+        writer = csv.DictWriter(output, fieldnames=("set_num", "status"))
+        writer.writeheader()
+        writer.writerow({"set_num": "10000-1", "status": "REVIEW_REQUIRED"})
+
+    selected = select_refresh_sets(
+        universe, count=10, seed=1, benchmark_report=report
+    )
+    selected_ids = {row["set_num"] for row in selected}
+    assert "10000-1" not in selected_ids
+    assert "SPECIAL-1" not in selected_ids
