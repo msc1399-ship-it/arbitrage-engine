@@ -59,8 +59,10 @@ def test_moc_with_punctuation_is_compatible_product():
     ("LEGO repuesto Porsche 911 10295 bolsa 10", "PARTS"),
     ("LEGO 10295 Porsche 911 Targa solo piezas impresas", "PARTS"),
     ("LEGO Porsche 911 10295 Manual + Bolsa sellada 10 piezas", "PARTS"),
+    ("LEGO 21318 Treehouse 434 Pg. Assembly Manual Book Only", "INSTRUCTIONS"),
     ("LEGO Porsche 911 10295 casi completo", "INCOMPLETE_SET"),
     ("LEGO Porsche 911 10295 completitud desconocida", "INCOMPLETE_SET"),
+    ("LEGO 10300 Regreso al Futuro Piezas Faltantes Incompletas", "INCOMPLETE_SET"),
 ])
 def test_manual_and_replacement_variants_are_filtered(title, expected):
     assert classify(title) == expected
@@ -109,6 +111,7 @@ def test_identity_variants_can_use_canonical_or_full_set_signals(title, set_num,
     ("LEGO instrucciones solo para set 21318 Tree House", "21318-1",
      "INSTRUCTIONS"),
     ("LEGO 10300 bolsa #11-B sellada", "10300-1", "PARTS"),
+    ("LEGO 10295 Porsche 911 VIP Owners Pack Wallet GWP", "10295-1", "ACCESSORY"),
 ])
 def test_cross_product_contaminants_are_filtered(title, set_num, expected):
     result = classify_ebay_listing(

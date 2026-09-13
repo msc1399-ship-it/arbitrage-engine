@@ -62,7 +62,7 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         rf"(?<!\d){re.escape(set_root)}(?:-1)?(?!\d)", title
     ))
     expected = _identity_matches(title, expected_terms)
-    lego = bool(re.search(r"(?<![a-z0-9])lego(?:®)?(?![a-z0-9])", title))
+    lego = bool(re.search(r"(?<![a-z0-9])lego(?![a-z0-9])", title))
 
     if _contains(title, (
         "box only", "empty box", "caja vacia", "solo caja", "boite vide",
@@ -84,6 +84,8 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         "modelo de exhibicion", "supporto ", "panel de exhibicion",
         "kit de luces", "locolee", "custom wheels", "ruote ",
         "placa de identificacion solo", "soporte r2",
+        "owners pack", "owner's pack", "vip pack", "tarjetero", "billetera",
+        "wallet", "gwp",
     )):
         return ListingClassification("ACCESSORY", ("title indicates an accessory",))
 
@@ -103,7 +105,8 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         "manuale set", "libros de instrucciones", "manuales libro", "manuales solo",
         "solo libros", "libro solo", "instrucciones solo",
         "instrucciones de construccion", "manual para",
-        "bauanleitung", "notice de montage", "libretto istruzioni",
+        "assembly manual", "book only", "bauanleitung", "notice de montage",
+        "libretto istruzioni",
     )):
         return ListingClassification("INSTRUCTIONS", ("title indicates instructions only",))
 
@@ -112,7 +115,7 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         "sin caja", "without box", "no box", "ohne ovp", "sans boite",
         "sin minifig", "without minifig", "not complete", "nicht komplett",
         "casi completo", "completitud desconocid", "falta hoja", "faltan bolsa",
-        "missing sticker",
+        "missing sticker", "piezas faltantes", "pieces missing",
     )
     percentage_incomplete = bool(re.search(r"\b(?:9[0-9](?:[.,][0-9]+)?)%\s*(?:complete|completo)", title))
     if _contains(title, incomplete_terms) or percentage_incomplete:
