@@ -3,7 +3,9 @@ import requests
 
 
 class ConnectorError(RuntimeError):
-    pass
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ConnectorAuthenticationError(ConnectorError):
@@ -19,12 +21,15 @@ def request_with_backoff(method, url, *, session=None, headers=None, params=None
                          sleep=time.sleep):
     requester = session or requests
     last_error = None
+    last_status_code = None
     for attempt in range(max_retries):
         try:
             r = requester.request(method, url, headers=headers or {}, params=params,
                                   data=data, auth=auth, timeout=timeout)
             if r.status_code in (401, 403):
-                raise ConnectorAuthenticationError("Connector authentication failed")
+                raise ConnectorAuthenticationError(
+                    "Connector authentication failed", status_code=r.status_code
+                )
             if r.status_code == 429:
                 retry_after = r.headers.get("Retry-After")
                 try:
@@ -37,18 +42,27 @@ def request_with_backoff(method, url, *, session=None, headers=None, params=None
                 sleep(wait)
                 continue
             if 400 <= r.status_code < 500:
-                raise ConnectorError(f"Connector request rejected with HTTP {r.status_code}")
+                raise ConnectorError(
+                    f"Connector request rejected with HTTP {r.status_code}",
+                    status_code=r.status_code,
+                )
             r.raise_for_status()
             return r
         except (ConnectorAuthenticationError, ConnectorRateLimitError):
             raise
         except requests.RequestException as e:
             last_error = e
+            last_status_code = getattr(getattr(e, "response", None), "status_code", None)
+            if last_status_code is None and "r" in locals():
+                last_status_code = getattr(r, "status_code", None)
             if attempt == max_retries - 1:
                 break
             wait = min(base_delay * (2 ** attempt), 60)
             sleep(wait)
-    raise ConnectorError(f"Connector request failed after {max_retries} attempts") from last_error
+    raise ConnectorError(
+        f"Connector request failed after {max_retries} attempts",
+        status_code=last_status_code,
+    ) from last_error
 
 
 def get_with_backoff(url, *, headers=None, params=None, timeout=30, max_retries=6,

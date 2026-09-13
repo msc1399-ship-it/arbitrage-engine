@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from notification_server.ebay_account_deletion import (
@@ -32,7 +32,9 @@ def create_app(*, settings=None, database_path=DEFAULT_DB_PATH,
         application.state.settings = (settings or AccountDeletionSettings.from_environment()).validated()
         application.state.deletion_store = EbayDeletionStore(database_path)
         application.state.signature_verifier = (
-            signature_verifier or EbayNotificationSignatureVerifier.from_environment()
+            signature_verifier or EbayNotificationSignatureVerifier.from_environment(
+                required_environment="production"
+            )
         )
         application.state.deletion_processor = deletion_processor
         yield
@@ -82,8 +84,13 @@ def create_app(*, settings=None, database_path=DEFAULT_DB_PATH,
                 headers=headers,
             )
         if verification.valid is None:
+            LOGGER.error(
+                "ebay_account_deletion signature_verification=unavailable reason=%s",
+                verification.reason or "unknown",
+            )
             return JSONResponse(
-                {"status": "not_processed", "signature_status": verification.status},
+                {"status": "not_processed", "signature_status": verification.status,
+                 "reason": verification.reason},
                 status_code=503,
                 headers=headers,
             )
@@ -91,11 +98,7 @@ def create_app(*, settings=None, database_path=DEFAULT_DB_PATH,
         received_at = datetime.now(timezone.utc).isoformat()
         store = application.state.deletion_store
         if not store.claim(str(notification_id), received_at):
-            return JSONResponse(
-                {"status": "acknowledged", "duplicate": True,
-                 "signature_status": verification.status},
-                headers=headers,
-            )
+            return Response(status_code=204, headers=headers)
         try:
             result = await run_in_threadpool(
                 application.state.deletion_processor,
@@ -114,11 +117,7 @@ def create_app(*, settings=None, database_path=DEFAULT_DB_PATH,
                 status_code=500,
                 headers=headers,
             )
-        return JSONResponse(
-            {"status": "acknowledged", "duplicate": False,
-             "signature_status": verification.status},
-            headers=headers,
-        )
+        return Response(status_code=204, headers=headers)
 
     return application
 

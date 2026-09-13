@@ -22,6 +22,22 @@ The existing `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, and `EBAY_ENVIRONMENT` valu
 are used to retrieve eBay's notification public key. Secrets and OAuth tokens are
 never logged.
 
+For a Production deployment on Render, configure these variables in the Render
+service itself. A local `.env` file is not uploaded or inherited by Render:
+
+```dotenv
+EBAY_CLIENT_ID=<Production App ID / Client ID>
+EBAY_CLIENT_SECRET=<Production Cert ID / Client Secret>
+EBAY_ENVIRONMENT=production
+EBAY_ACCOUNT_DELETION_ENDPOINT=https://arbitrage-engine-tz8g.onrender.com/ebay/account-deletion
+EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN=<same token registered at eBay>
+```
+
+Do not use `EBAY_PRODUCTION_CLIENT_ID` or `EBAY_PRODUCTION_CLIENT_SECRET`: the
+current `EbayClient` deliberately reads `EBAY_CLIENT_ID` and
+`EBAY_CLIENT_SECRET`. Values must come from the Production keyset associated with
+the endpoint registration, not the Sandbox keyset.
+
 ## Local execution
 
 ```powershell
@@ -51,6 +67,27 @@ public key identified by its `kid`. Public keys are obtained through eBay's
 Notification API and cached for one hour. A missing or invalid signature returns
 HTTP 412. If verification cannot be performed, the service returns HTTP 503 with
 `PENDING_IMPLEMENTATION`; it never silently accepts the notification.
+
+In Production the public key URL is exactly:
+
+```text
+https://api.ebay.com/commerce/notification/v1/public_key/{public_key_id}
+```
+
+The service emits sanitized diagnostic events for configuration, OAuth, public-key
+retrieval, signature-header parsing, and cryptographic verification. HTTP status
+codes and a non-reversible key-ID fingerprint may be logged; credentials, OAuth
+tokens, notification bodies, and eBay user identifiers are not.
+
+Common 503 reasons are:
+
+- `CREDENTIALS_MISSING`: add the two `EBAY_CLIENT_*` values to Render.
+- `ENVIRONMENT_INCORRECT`: set `EBAY_ENVIRONMENT=production`.
+- `OAUTH_FAILED`: Production credentials were rejected or cannot obtain an app token.
+- `PUBLIC_KEY_NOT_FOUND`: eBay returned 404 for the `kid` from the signature.
+- `PUBLIC_KEY_API_FAILED`: Notification API returned another HTTP/network error.
+- `PUBLIC_KEY_RESPONSE_INVALID`, `PUBLIC_KEY_MISSING`, or `CRYPTOGRAPHIC_ERROR`:
+  inspect the sanitized Render event for the failed stage.
 
 Accepted notification IDs are stored idempotently in SQLite. The audit table keeps
 only the notification ID, receipt time, processing time, and result. Existing eBay

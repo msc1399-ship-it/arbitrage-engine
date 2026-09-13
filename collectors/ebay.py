@@ -60,10 +60,19 @@ class EbayClient:
             auth=(self.client_id, self.client_secret), max_retries=self.max_retries,
             sleep=self.sleep,
         )
-        payload = response.json()
+        try:
+            payload = response.json()
+        except (ValueError, AttributeError) as error:
+            raise ConnectorAuthenticationError(
+                "eBay token response was not valid JSON",
+                status_code=response.status_code,
+            ) from error
         token = payload.get("access_token")
         if not token:
-            raise ConnectorAuthenticationError("eBay token response did not contain an access token")
+            raise ConnectorAuthenticationError(
+                "eBay token response did not contain an access token",
+                status_code=response.status_code,
+            )
         self._token = token
         self._token_expires_at = time.monotonic() + max(int(payload.get("expires_in", 7200)) - 60, 0)
         return token
