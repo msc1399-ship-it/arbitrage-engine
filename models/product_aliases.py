@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+import re
 from dataclasses import dataclass
 
 
@@ -52,7 +53,7 @@ def get_product_aliases(
     extra_aliases: tuple[str, ...] | list[str] = (),
 ) -> ProductAliases:
     """Return configured and caller-provided aliases without duplicates."""
-    root = str(set_num).removesuffix("-1")
+    root = re.sub(r"-\d+$", "", str(set_num))
     configured = PRODUCT_ALIASES.get(root)
     canonical = configured.canonical_name if configured else name.strip()
     candidates = (name, *(configured.aliases if configured else ()), *extra_aliases)

@@ -200,17 +200,52 @@ class EbayQueryEngine:
 
 
 def full_set_price_summary(result: EbayQueryEnsembleResult, condition: str):
+    stats = full_set_price_stats(result.listings, condition)
+    return {
+        "count": stats["count"],
+        "median": stats["median"],
+    }
+
+
+def _percentile(values: list[float], fraction: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * fraction
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+
+
+def full_set_price_stats(
+    listings,
+    condition: str,
+    *,
+    currency: str = "EUR",
+    matched_query: str | None = None,
+):
+    """Summarize active asking prices without mixing currencies or dropping outliers."""
     values = []
-    for item in result.listings:
+    for item in listings:
         if item["classification"] != "FULL_SET" or normalized_condition(item) != condition:
             continue
+        if matched_query is not None and matched_query not in item.get("matched_queries", ()):
+            continue
+        price = item.get("price") or {}
+        if price.get("currency") != currency:
+            continue
         try:
-            values.append(float((item.get("price") or {})["value"]))
+            values.append(float(price["value"]))
         except (KeyError, TypeError, ValueError):
             continue
     return {
         "count": len(values),
+        "min": min(values) if values else None,
+        "p25": _percentile(values, 0.25),
         "median": statistics.median(values) if values else None,
+        "p75": _percentile(values, 0.75),
+        "max": max(values) if values else None,
+        "mean": statistics.mean(values) if values else None,
     }
 
 

@@ -56,6 +56,15 @@ def test_query_generation_is_ordered_short_and_bounded():
     assert all(len(query.split()) <= 7 for query in plan.queries)
 
 
+def test_long_rebrickable_name_uses_short_query_instead_of_full_name():
+    plan = plan_ebay_queries(
+        "42206-1", "Oracle Red Bull Racing RB20 F1 Car", max_queries=3
+    )
+
+    assert plan.queries[1] == "LEGO 42206 Oracle Red Bull"
+    assert all(len(query.split()) <= 7 for query in plan.queries)
+
+
 def test_configured_and_extra_aliases_are_merged_without_duplicates():
     aliases = get_product_aliases(
         "21318-1", "Tree House", ("Casa del Árbol", "Tree House")
@@ -136,6 +145,18 @@ def test_exact_set_number_does_not_match_a_longer_number():
         expected_terms=("Back to the Future",),
     )
     assert result.category == "OTHER"
+
+
+def test_non_primary_set_variant_uses_base_lego_number():
+    plan = plan_ebay_queries("3181-2", "Passenger Plane - ANA Version")
+    result = classify_ebay_listing(
+        {"title": "LEGO City 3181 Passenger Plane ANA Version complete"},
+        set_num="3181-2",
+        expected_terms=plan.identity_terms,
+    )
+
+    assert plan.queries[0] == "LEGO 3181"
+    assert result.category == "FULL_SET"
 
 
 def test_alias_is_positive_identity_signal_for_translated_title():

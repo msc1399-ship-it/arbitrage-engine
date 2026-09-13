@@ -112,6 +112,13 @@ def test_identity_variants_can_use_canonical_or_full_set_signals(title, set_num,
      "INSTRUCTIONS"),
     ("LEGO 10300 bolsa #11-B sellada", "10300-1", "PARTS"),
     ("LEGO 10295 Porsche 911 VIP Owners Pack Wallet GWP", "10295-1", "ACCESSORY"),
+    ("LEGO 76018 Hulk Lab Smash con instrucciones solo construccion", "76018-1", "INCOMPLETE_SET"),
+    ("LEGO 75045 Republic AV-7 Cannon completo sin figuras", "75045-1", "INCOMPLETE_SET"),
+    ("LEGO 71699 Thunder Raider COMPLETE NO FIGURES", "71699-1", "INCOMPLETE_SET"),
+    ("LEGO 21308 Adventure Time figura solo BMO", "21308-1", "PARTS"),
+    ("LEGO TECHNIC 42037 Formula Off-Roader - INSTRUCTIONS", "42037-1", "INSTRUCTIONS"),
+    ("LEGO Vintage Istruzioni Instructions Set 3181 Passenger Plane Book 2", "3181-2", "INSTRUCTIONS"),
+    ("Manuales de instrucciones de LEGO Ninjago Thunder Raider 71699", "71699-1", "INSTRUCTIONS"),
 ])
 def test_cross_product_contaminants_are_filtered(title, set_num, expected):
     result = classify_ebay_listing(

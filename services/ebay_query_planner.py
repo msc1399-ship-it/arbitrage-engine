@@ -76,13 +76,13 @@ def plan_ebay_queries(
     if not 1 <= max_queries <= 5:
         raise ValueError("max_queries must be between 1 and 5")
 
-    root = str(set_num).removesuffix("-1")
+    root = re.sub(r"-\d+$", "", str(set_num))
     normalized = normalize_product_name(name)
     product_aliases = get_product_aliases(set_num, name, aliases)
     full_name_key = _ascii(normalized.full_name).casefold()
     terms = (
-        product_aliases.canonical_name,
         normalized.short_name,
+        product_aliases.canonical_name,
         *(
             alias for alias in product_aliases.aliases
             if _ascii(alias).casefold() != full_name_key
@@ -92,6 +92,8 @@ def plan_ebay_queries(
     seen = {queries[0].casefold()}
     for term in terms:
         clean = " ".join(_ascii(term).split())
+        if len(clean.split()) > 5:
+            continue
         query = f"LEGO {root} {clean}"
         if clean and query.casefold() not in seen:
             queries.append(query)

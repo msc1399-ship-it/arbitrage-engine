@@ -57,7 +57,7 @@ def _identity_matches(title, expected_terms):
 
 def classify_ebay_listing(item, *, set_num, expected_terms=()):
     title = _plain(item.get("title"))
-    set_root = set_num.removesuffix("-1")
+    set_root = re.sub(r"-\d+$", "", set_num)
     exact_set = bool(re.search(
         rf"(?<!\d){re.escape(set_root)}(?:-1)?(?!\d)", title
     ))
@@ -94,9 +94,12 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         "ersatzteil", "repuesto", "minifig", "minifigure", "piezas sueltas",
         "solo piezas", "lote de piezas", "manual + bolsa", "bolsa sellada #",
         "motor completo", "piece de rechange", "bolsa #", "bolsas de follaje",
-        "convolut", "konvolut",
+        "convolut", "konvolut", "figure only", "figura solo",
     )):
         return ListingClassification("PARTS", ("title indicates parts or figures",))
+
+    if "solo construccion" in title:
+        return ListingClassification("INCOMPLETE_SET", ("title indicates missing content",))
 
     if _contains(title, (
         "instructions only", "instruction booklet", "instruction manual only",
@@ -106,7 +109,8 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         "solo libros", "libro solo", "instrucciones solo",
         "instrucciones de construccion", "manual para",
         "assembly manual", "book only", "bauanleitung", "notice de montage",
-        "libretto istruzioni",
+        "libretto istruzioni", "manuales de instrucciones de lego", " - instructions",
+        "instructions set",
     )):
         return ListingClassification("INSTRUCTIONS", ("title indicates instructions only",))
 
@@ -116,6 +120,7 @@ def classify_ebay_listing(item, *, set_num, expected_terms=()):
         "sin minifig", "without minifig", "not complete", "nicht komplett",
         "casi completo", "completitud desconocid", "falta hoja", "faltan bolsa",
         "missing sticker", "piezas faltantes", "pieces missing",
+        "sin figuras", "no figures", "without figures", "solo construccion",
     )
     percentage_incomplete = bool(re.search(r"\b(?:9[0-9](?:[.,][0-9]+)?)%\s*(?:complete|completo)", title))
     if _contains(title, incomplete_terms) or percentage_incomplete:
