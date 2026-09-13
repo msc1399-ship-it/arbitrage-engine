@@ -70,6 +70,62 @@ def test_exact_number_without_brand_is_uncertain():
     assert classify("Porsche 911 10295 100% completo") == "UNCERTAIN"
 
 
+def test_full_rebrickable_name_matches_title_tokens_not_literal_phrase():
+    result = classify_ebay_listing(
+        {"title": "LEGO Icons 10295 Porsche 911 Turbo o Targa nuevo"},
+        set_num="10295-1",
+        expected_terms=("Porsche 911 Turbo & 911 Targa",),
+    )
+    assert result.category == "FULL_SET"
+
+
+@pytest.mark.parametrize("title,set_num,name", [
+    ("LEGO Star Wars R2D2 75308 nuevo sellado", "75308-1", "R2-D2"),
+    ("LEGO Ideas Casa del Arbol 21318 nuevo", "21318-1", "Tree House"),
+    ("LEGO 10300 Regreso al Futuro Maquina del Tiempo nuevo", "10300-1",
+     "Back to the Future Time Machine"),
+])
+def test_identity_variants_can_use_canonical_or_full_set_signals(title, set_num, name):
+    result = classify_ebay_listing(
+        {"title": title}, set_num=set_num, expected_terms=(name,)
+    )
+    assert result.category == "FULL_SET"
+
+
+@pytest.mark.parametrize("title,set_num,expected", [
+    ("Marco en la pared para LEGO Lamborghini Sian 42115", "42115-1", "ACCESSORY"),
+    ("Kit de iluminacion LED Briksmax para LEGO 10300", "10300-1", "ACCESSORY"),
+    ("LEGO 10300 bolsa sellada #7", "10300-1", "PARTS"),
+    ("LEGO 42115 libros de instrucciones de construccion", "42115-1", "INSTRUCTIONS"),
+    ("2x LEGO 10300 Back to the Future nuevo", "10300-1", "OTHER"),
+    ("LEGO 75308 R2-D2 SOLO EN CAJA", "75308-1", "BOX_ONLY"),
+    ("LEGO 75308 R2-D2 libro solo", "75308-1", "INSTRUCTIONS"),
+    ("LEGO 75308 R2-D2 faltan bolsas y manual", "75308-1", "INCOMPLETE_SET"),
+    ("Lego instrucciones de construccion 42115 Lamborghini Sian", "42115-1",
+     "INSTRUCTIONS"),
+    ("Supporto Muro Lamborghini Sian 42115 compatibile LEGO", "42115-1",
+     "ACCESSORY"),
+    ("Supporto infuocato per LEGO DeLorean 10300", "10300-1", "ACCESSORY"),
+    ("LEGO instrucciones solo para set 21318 Tree House", "21318-1",
+     "INSTRUCTIONS"),
+    ("LEGO 10300 bolsa #11-B sellada", "10300-1", "PARTS"),
+])
+def test_cross_product_contaminants_are_filtered(title, set_num, expected):
+    result = classify_ebay_listing(
+        {"title": title}, set_num=set_num, expected_terms=()
+    )
+    assert result.category == expected
+
+
+def test_ambiguous_numbered_listing_requires_review():
+    result = classify_ebay_listing(
+        {"title": "Listado 6: LEGO Star Wars 75308 R2-D2"},
+        set_num="75308-1",
+        expected_terms=("R2-D2",),
+    )
+    assert result.category == "UNCERTAIN"
+
+
 @pytest.mark.parametrize("condition,condition_id,expected", [
     ("Nuevo", "1000", "NEW"),
     ("Gebraucht", "3000", "USED"),
