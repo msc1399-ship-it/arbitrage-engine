@@ -7,6 +7,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.ebay_data_deletion import sanitize_ebay_data_for_storage
+
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "market_history.sqlite3"
 
 
@@ -114,7 +116,8 @@ class MarketStore:
                    ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, result.set_num, result.timestamp, result.market_status,
                  _json(aggregate.bricklink_data) if aggregate.bricklink_data else None,
-                 _json(aggregate.ebay_data) if aggregate.ebay_data else None,
+                 _json(sanitize_ebay_data_for_storage(asdict(aggregate.ebay_data)))
+                 if aggregate.ebay_data else None,
                  _json(metrics), _json(confidence), metrics.decision,
                  result.error_message),
             )
