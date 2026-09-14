@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from services.ebay_data_deletion import sanitize_ebay_data_for_storage
@@ -22,6 +22,32 @@ def _json_default(value):
 
 def _json(value):
     return json.dumps(value, default=_json_default, ensure_ascii=True, separators=(",", ":"))
+
+
+def _change_pct(current, baseline):
+    if current is None or baseline in (None, 0):
+        return None
+    return round((current - baseline) / baseline * 100, 6)
+
+
+def _parse_timestamp(value):
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def _window_changes(snapshot, history, observed_at, days):
+    cutoff = observed_at - timedelta(days=days)
+    eligible = [row for row in history if _parse_timestamp(row["timestamp"]) <= cutoff]
+    if not eligible:
+        return None
+    baseline = max(eligible, key=lambda row: (_parse_timestamp(row["timestamp"]), row["id"]))
+    return {
+        "new_p25_change_pct": _change_pct(snapshot.get("new_p25"), baseline["new_p25"]),
+        "used_p25_change_pct": _change_pct(snapshot.get("used_p25"), baseline["used_p25"]),
+        "listing_count_change_pct": _change_pct(
+            snapshot.get("full_set_count"), baseline["full_set_count"]
+        ),
+    }
 
 
 class MarketStore:
@@ -103,11 +129,21 @@ class MarketStore:
                     used_p75 REAL,
                     used_max REAL,
                     api_calls INTEGER NOT NULL,
-                    diagnostic TEXT
+                    diagnostic TEXT,
+                    historical_metrics TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_ebay_snapshot_set
                     ON ebay_market_snapshots(set_num, id DESC);
             """)
+            columns = {
+                row["name"] for row in connection.execute(
+                    "PRAGMA table_info(ebay_market_snapshots)"
+                ).fetchall()
+            }
+            if "historical_metrics" not in columns:
+                connection.execute(
+                    "ALTER TABLE ebay_market_snapshots ADD COLUMN historical_metrics TEXT"
+                )
 
     def start_run(self, run_id, set_nums, timestamp=None):
         timestamp = timestamp or datetime.now(timezone.utc).isoformat()
@@ -169,6 +205,7 @@ class MarketStore:
 
     def save_ebay_snapshot(self, run_id, snapshot, *, usable_for_radar, timestamp=None):
         timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+        observed_at = _parse_timestamp(timestamp)
         price_fields = (
             "new_count", "new_min", "new_p25", "new_median", "new_p75", "new_max",
             "used_count", "used_min", "used_p25", "used_median", "used_p75", "used_max",
@@ -184,20 +221,40 @@ class MarketStore:
             "price_stability": snapshot.get("price_stability"),
         }
         with self._connection() as connection:
+            history = [dict(row) for row in connection.execute(
+                "SELECT * FROM ebay_market_snapshots WHERE set_num=? ORDER BY id",
+                (snapshot["set_num"],),
+            ).fetchall()]
+            stored_snapshot = {**snapshot, **prices}
+            previous = history[-1] if history else None
+            historical_metrics = {
+                "new_p25_change_pct": _change_pct(
+                    stored_snapshot.get("new_p25"), previous["new_p25"] if previous else None
+                ),
+                "used_p25_change_pct": _change_pct(
+                    stored_snapshot.get("used_p25"), previous["used_p25"] if previous else None
+                ),
+                "listing_count_change_pct": _change_pct(
+                    stored_snapshot.get("full_set_count"),
+                    previous["full_set_count"] if previous else None,
+                ),
+                "7d_change": _window_changes(stored_snapshot, history, observed_at, 7),
+                "30d_change": _window_changes(stored_snapshot, history, observed_at, 30),
+            }
             connection.execute(
                 """INSERT INTO ebay_market_snapshots(
                        run_id,set_num,timestamp,marketplace,condition,full_set_count,
                        retrieval_yield,uncertain_rate,price_stability,quality_status,
                        usable_for_radar,new_count,new_min,new_p25,new_median,new_p75,new_max,
                        used_count,used_min,used_p25,used_median,used_p75,used_max,
-                       api_calls,diagnostic
-                   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       api_calls,diagnostic,historical_metrics
+                   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, snapshot["set_num"], timestamp, "EBAY", "MIXED",
                  snapshot.get("full_set_count"), snapshot.get("retrieval_yield"),
                  snapshot.get("uncertain_rate"), snapshot.get("price_stability"),
                  snapshot["status"], int(usable_for_radar),
                  *(prices[field] for field in price_fields),
-                 snapshot.get("api_calls", 0), _json(diagnostic)),
+                 snapshot.get("api_calls", 0), _json(diagnostic), _json(historical_metrics)),
             )
             connection.execute(
                 """UPDATE market_refresh_run_items
@@ -260,6 +317,12 @@ class MarketStore:
             """).fetchall()
         return [dict(row) for row in rows]
 
+    def monitored_ebay_set_nums(self):
+        return [
+            row["set_num"] for row in self.latest_ebay_snapshots()
+            if row["quality_status"] in {"GOOD_EBAY_DATA", "PARTIAL_EBAY_DATA"}
+        ]
+
     def latest_radar_rows(self):
         output = []
         for record in self.latest_records():
@@ -305,6 +368,9 @@ class MarketStore:
                 "set_num": snapshot["set_num"], "decision": "PENDING MARKET DATA",
             })
             usable = bool(snapshot["usable_for_radar"])
+            trend = json.loads(snapshot["historical_metrics"]) if snapshot["historical_metrics"] else {}
+            change_7d = trend.get("7d_change") or {}
+            change_30d = trend.get("30d_change") or {}
             row.update({
                 "ebay_status": badges.get(snapshot["quality_status"], snapshot["quality_status"]),
                 "ebay_full_set_count": snapshot["full_set_count"],
@@ -318,6 +384,15 @@ class MarketStore:
                 "ebay_uncertain_rate": snapshot["uncertain_rate"],
                 "ebay_price_stability": snapshot["price_stability"],
                 "ebay_last_refresh": snapshot["timestamp"],
+                "ebay_new_p25_change_pct": trend.get("new_p25_change_pct"),
+                "ebay_used_p25_change_pct": trend.get("used_p25_change_pct"),
+                "ebay_listing_count_change_pct": trend.get("listing_count_change_pct"),
+                "ebay_new_p25_7d_change_pct": change_7d.get("new_p25_change_pct"),
+                "ebay_used_p25_7d_change_pct": change_7d.get("used_p25_change_pct"),
+                "ebay_listing_count_7d_change_pct": change_7d.get("listing_count_change_pct"),
+                "ebay_new_p25_30d_change_pct": change_30d.get("new_p25_change_pct"),
+                "ebay_used_p25_30d_change_pct": change_30d.get("used_p25_change_pct"),
+                "ebay_listing_count_30d_change_pct": change_30d.get("listing_count_change_pct"),
             })
         return list(by_set.values())
 

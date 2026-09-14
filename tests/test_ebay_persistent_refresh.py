@@ -93,6 +93,74 @@ def test_none_price_is_preserved_for_usable_snapshot(tmp_path):
     assert row["ebay_used_median"] is None
 
 
+def test_monitored_sets_use_only_latest_good_or_partial_status(tmp_path):
+    store = MarketStore(tmp_path / "market.sqlite3")
+    store.start_run("first", ["A-1", "B-1", "C-1"])
+    store.save_ebay_snapshot("first", summary("A-1"), usable_for_radar=True)
+    store.save_ebay_snapshot(
+        "first", summary("B-1", status="PARTIAL_EBAY_DATA"), usable_for_radar=True
+    )
+    store.save_ebay_snapshot("first", summary("C-1"), usable_for_radar=True)
+    store.start_run("second", ["A-1"])
+    store.save_ebay_snapshot(
+        "second", summary("A-1", status="REVIEW_REQUIRED"), usable_for_radar=False
+    )
+
+    assert store.monitored_ebay_set_nums() == ["B-1", "C-1"]
+
+
+def test_historical_changes_and_time_windows(tmp_path):
+    store = MarketStore(tmp_path / "market.sqlite3")
+    for run_id in ["one", "two", "three"]:
+        store.start_run(run_id, ["TEST-1"])
+    store.save_ebay_snapshot(
+        "one", summary(new_p25=100, used_p25=50, full_set_count=20),
+        usable_for_radar=True, timestamp="2026-01-01T00:00:00+00:00",
+    )
+    store.save_ebay_snapshot(
+        "two", summary(new_p25=110, used_p25=55, full_set_count=22),
+        usable_for_radar=True, timestamp="2026-01-24T00:00:00+00:00",
+    )
+    store.save_ebay_snapshot(
+        "three", summary(new_p25=121, used_p25=44, full_set_count=11),
+        usable_for_radar=True, timestamp="2026-02-02T00:00:00+00:00",
+    )
+
+    history = store.ebay_history_for_set("TEST-1")
+    first_metrics = json.loads(history[0]["historical_metrics"])
+    latest_metrics = json.loads(history[-1]["historical_metrics"])
+    radar = store.latest_radar_rows()[0]
+    assert first_metrics["new_p25_change_pct"] is None
+    assert first_metrics["7d_change"] is None
+    assert latest_metrics["new_p25_change_pct"] == 10
+    assert latest_metrics["used_p25_change_pct"] == -20
+    assert latest_metrics["listing_count_change_pct"] == -50
+    assert latest_metrics["7d_change"]["new_p25_change_pct"] == 10
+    assert latest_metrics["30d_change"]["new_p25_change_pct"] == 21
+    assert radar["ebay_new_p25_7d_change_pct"] == 10
+    assert radar["ebay_new_p25_30d_change_pct"] == 21
+    assert len(history) == 3
+
+
+def test_historical_change_preserves_none_and_zero_baseline(tmp_path):
+    store = MarketStore(tmp_path / "market.sqlite3")
+    store.start_run("one", ["TEST-1"])
+    store.save_ebay_snapshot(
+        "one", summary(new_p25=None, used_p25=0), usable_for_radar=True,
+        timestamp="2026-01-01T00:00:00+00:00",
+    )
+    store.start_run("two", ["TEST-1"])
+    store.save_ebay_snapshot(
+        "two", summary(new_p25=100, used_p25=20), usable_for_radar=True,
+        timestamp="2026-01-02T00:00:00+00:00",
+    )
+
+    metrics = json.loads(store.ebay_history_for_set("TEST-1")[-1]["historical_metrics"])
+    assert metrics["new_p25_change_pct"] is None
+    assert metrics["used_p25_change_pct"] is None
+    assert metrics["7d_change"] is None
+
+
 class FakeEbay:
     environment = "production"
     rate_limit_retries = 0

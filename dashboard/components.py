@@ -75,6 +75,26 @@ def radar_view(radar, paper):
                 "ebay_retrieval_yield", "ebay_uncertain_rate",
                 "ebay_price_stability", "ebay_last_refresh",
             ])
+            st.write("EBAY ASKING TREND")
+            st.caption("ASKING PRICE - NOT SOLD PRICE")
+            st.dataframe(pd.DataFrame([
+                {
+                    "Condition": "NEW",
+                    "Latest P25": row.get("ebay_new_p25"),
+                    "24h change (%)": row.get("ebay_new_p25_change_pct"),
+                    "7d change (%)": row.get("ebay_new_p25_7d_change_pct"),
+                    "30d change (%)": row.get("ebay_new_p25_30d_change_pct"),
+                },
+                {
+                    "Condition": "USED",
+                    "Latest P25": row.get("ebay_used_p25"),
+                    "24h change (%)": row.get("ebay_used_p25_change_pct"),
+                    "7d change (%)": row.get("ebay_used_p25_7d_change_pct"),
+                    "30d change (%)": row.get("ebay_used_p25_30d_change_pct"),
+                },
+            ]), hide_index=True)
+            depth = row.get("ebay_full_set_count")
+            st.metric("Current listing depth", "PENDING" if pd.isna(depth) else int(depth))
             factors = row.get("confidence_factors")
             if isinstance(factors, dict):
                 st.dataframe(pd.DataFrame(factors.items(), columns=["Factor", "Score"]), hide_index=True)

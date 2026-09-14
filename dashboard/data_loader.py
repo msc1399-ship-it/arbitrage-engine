@@ -53,6 +53,15 @@ RADAR_COLUMNS = [
     "ebay_uncertain_rate",
     "ebay_price_stability",
     "ebay_last_refresh",
+    "ebay_new_p25_change_pct",
+    "ebay_used_p25_change_pct",
+    "ebay_listing_count_change_pct",
+    "ebay_new_p25_7d_change_pct",
+    "ebay_used_p25_7d_change_pct",
+    "ebay_listing_count_7d_change_pct",
+    "ebay_new_p25_30d_change_pct",
+    "ebay_used_p25_30d_change_pct",
+    "ebay_listing_count_30d_change_pct",
 ]
 
 MARKET_DETAIL_COLUMNS = ["confidence_reasons", "confidence_factors", "error_message"]
@@ -111,6 +120,15 @@ def build_radar_frame(catalog: pd.DataFrame) -> pd.DataFrame:
         "ebay_asking_reference_used",
         "ebay_retrieval_yield",
         "ebay_uncertain_rate",
+        "ebay_new_p25_change_pct",
+        "ebay_used_p25_change_pct",
+        "ebay_listing_count_change_pct",
+        "ebay_new_p25_7d_change_pct",
+        "ebay_used_p25_7d_change_pct",
+        "ebay_listing_count_7d_change_pct",
+        "ebay_new_p25_30d_change_pct",
+        "ebay_used_p25_30d_change_pct",
+        "ebay_listing_count_30d_change_pct",
     ]
     for col in market_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
